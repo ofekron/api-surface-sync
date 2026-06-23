@@ -49,6 +49,12 @@ Project-specific concepts belong in the consuming project, not in this library.
 ## Install
 
 ```bash
+pip install "api-surface-sync @ git+https://github.com/ofekron/api-surface-sync.git"
+```
+
+After a PyPI release:
+
+```bash
 pip install api-surface-sync
 ```
 
@@ -62,4 +68,3 @@ pytest
 ## Status
 
 Early extraction-stage project. The first target consumer is TestApe, but the public contract must remain useful for the common case: one typed Python operation model exposed through several standard API surfaces.
-

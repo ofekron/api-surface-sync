@@ -7,8 +7,9 @@ from api_surface_sync.registry import OperationRegistry
 
 
 def add_routes(app: Any, registry: OperationRegistry, *, prefix: str = "") -> None:
+    normalized_prefix = prefix.rstrip("/")
     for item in registry.all():
-        route_path = f"{prefix}/{item.name}".replace("_", "-")
+        route_path = f"{normalized_prefix}/{item.name.replace('_', '-')}"
 
         async def route(payload: Any, operation=item) -> Any:
             result = await operation.run(payload)

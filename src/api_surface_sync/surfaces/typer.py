@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from inspect import Parameter, Signature
 from typing import Any
 
 from api_surface_sync.registry import OperationRegistry
@@ -18,5 +19,14 @@ def add_commands(app: Any, registry: OperationRegistry) -> None:
 
         command.__name__ = item.name
         command.__doc__ = item.summary
+        command.__signature__ = Signature(  # type: ignore[attr-defined]
+            parameters=[
+                Parameter(
+                    "payload_json",
+                    Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=str,
+                )
+            ],
+            return_annotation=None,
+        )
         app.command(name=command_name)(command)
-
