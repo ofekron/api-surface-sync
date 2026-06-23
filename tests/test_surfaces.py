@@ -18,6 +18,11 @@ class OptionalPingRequest(BaseModel):
     excited: bool = False
 
 
+class DefaultedPingRequest(BaseModel):
+    value: str
+    suffix: str = "?"
+
+
 class PingResponse(BaseModel):
     value: str
 
@@ -88,6 +93,29 @@ def test_typer_command_runs_with_generated_arguments_and_options() -> None:
 
     assert result.exit_code == 0
     assert result.stdout.strip() == '{"value":"hello!"}'
+
+
+def test_typer_command_omits_absent_optional_values() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    registry = OperationRegistry()
+
+    @registry.operation("ping_now", request_model=DefaultedPingRequest, response_model=PingResponse)
+    def ping_now(request: DefaultedPingRequest) -> PingResponse:
+        return PingResponse(value=f"{request.value}{request.suffix}")
+
+    @registry.operation("echo", request_model=PingRequest, response_model=PingResponse)
+    def echo(request: PingRequest) -> PingResponse:
+        return PingResponse(value=request.value)
+
+    app = typer.Typer()
+    add_commands(app, registry)
+
+    result = CliRunner().invoke(app, ["ping-now", "hello"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == '{"value":"hello?"}'
 
 
 def test_mcp_tools_are_registered_from_registry() -> None:

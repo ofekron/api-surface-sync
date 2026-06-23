@@ -14,7 +14,7 @@ def add_commands(app: Any, registry: OperationRegistry) -> None:
         command_name = item.name.replace("_", "-")
 
         def command(operation=item, **payload: Any) -> None:
-            result = asyncio.run(operation.run(payload))
+            result = asyncio.run(operation.run({key: value for key, value in payload.items() if value is not None}))
             print(result.value.model_dump_json())
 
         command.__name__ = item.name
