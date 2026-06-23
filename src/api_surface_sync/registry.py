@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any, Generic, TypeVar
 
@@ -24,6 +24,8 @@ class Operation(Generic[RequestT, ResponseT]):
     request_model: type[RequestT]
     response_model: type[ResponseT]
     handler: Handler
+    tags: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     async def run(self, payload: RequestT | dict[str, Any]) -> OperationResult[ResponseT]:
         request = self.request_model.model_validate(payload)
@@ -56,6 +58,8 @@ class OperationRegistry:
         request_model: type[RequestT],
         response_model: type[ResponseT],
         summary: str = "",
+        tags: tuple[str, ...] = (),
+        metadata: dict[str, Any] | None = None,
     ) -> Callable[[Handler], Handler]:
         def decorator(handler: Handler) -> Handler:
             self.register(
@@ -65,6 +69,8 @@ class OperationRegistry:
                     request_model=request_model,
                     response_model=response_model,
                     handler=handler,
+                    tags=tags,
+                    metadata=metadata or {},
                 )
             )
             return handler
@@ -85,6 +91,8 @@ class OperationRegistry:
             "operations": {
                 item.name: {
                     "summary": item.summary,
+                    "tags": list(item.tags),
+                    "metadata": item.metadata,
                     "request": item.request_schema(),
                     "response": item.response_schema(),
                 }
@@ -100,11 +108,14 @@ def operation(
     request_model: type[RequestT],
     response_model: type[ResponseT],
     summary: str = "",
+    tags: tuple[str, ...] = (),
+    metadata: dict[str, Any] | None = None,
 ) -> Callable[[Handler], Handler]:
     return registry.operation(
         name,
         request_model=request_model,
         response_model=response_model,
         summary=summary,
+        tags=tags,
+        metadata=metadata,
     )
-

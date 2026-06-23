@@ -25,6 +25,7 @@ From the same registry:
 
 ```python
 from api_surface_sync import OperationClient
+from api_surface_sync import export_openapi
 from api_surface_sync.surfaces.fastapi import add_routes
 from api_surface_sync.surfaces.mcp import add_tools
 from api_surface_sync.surfaces.typer import add_commands
@@ -64,6 +65,10 @@ For local development:
 pip install -e ".[dev]"
 pytest
 ```
+
+## SDK Languages
+
+`export_openapi(registry, title="My API")` emits an OpenAPI 3.1 contract. Use that contract with OpenAPI Generator, Speakeasy, Stainless, Fern, or custom templates to generate TypeScript, Go, Rust, Java, Swift, or other SDKs from the same operation source.
 
 ## Status
 
