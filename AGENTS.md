@@ -1,23 +1,16 @@
 # AGENTS.md
 
+Full working rules live in [`CLAUDE.md`](CLAUDE.md). Read it first — it is the single source for how to work in this repo. This file is a short pointer for tooling that looks for `AGENTS.md`.
+
 ## Core Rule
 
-This repo is generic tooling. Keep TestApe as a consumer, not a dependency.
+This repo is generic tooling. Keep consumers (e.g. TestApe) as users of the library, not concepts baked into it.
 
-## Development Rules
+## Quick reference
 
-- Preserve one source of truth: operation contracts live in the registry, surfaces bind to it.
-- Keep surface adapters thin. Business logic belongs in consuming projects.
-- Do not add TestApe-specific names, flows, adapters, FS-DB concepts, or expert-agent assumptions here.
-- Use Pydantic models for request and response contracts.
-- Prefer small modules with clear boundaries.
-- Add tests for every behavior change.
-- Delete dead code when a change makes it unused.
-- Keep README and `.agents/skills/project-structure/SKILL.md` current when material project facts change.
-
-## Git Rules
-
-- Stage only files changed for the current task.
-- Do not use `git add -A` or `git add .`.
-- Do not rewrite unrelated work.
-
+- One source of truth: operation contracts live in the registry; surfaces bind to it.
+- Surface adapters stay thin. Business logic belongs in consuming projects.
+- No consumer-specific names, flows, adapters, storage, or agent assumptions here.
+- Pydantic models for request/response contracts.
+- Every behavior change ships with tests; bug fixes ship with a fail-before/pass-after test.
+- Stage only files you changed. Never `git add -A` / `git add .`. Never rewrite unrelated work.
