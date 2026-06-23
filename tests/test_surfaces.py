@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 
 from pydantic import BaseModel
@@ -64,12 +65,16 @@ def test_mcp_tools_are_registered_from_registry() -> None:
         return PingResponse(value=request.value)
 
     server = FakeMcpServer()
-    add_tools(server, registry)
+    public_tools = {}
+    add_tools(server, registry, tool_registry=public_tools)
 
     assert [tool.__name__ for tool in server.tools] == ["ping"]
+    assert set(public_tools) == {"ping"}
     signature = inspect.signature(server.tools[0])
-    assert signature.parameters["payload"].annotation is PingRequest
+    assert list(signature.parameters) == ["value"]
+    assert signature.parameters["value"].annotation is str
     assert signature.return_annotation is PingResponse
+    assert asyncio.run(public_tools["ping"](value="pong")) == {"value": "pong"}
 
 
 def test_fastapi_routes_are_registered_from_registry() -> None:
