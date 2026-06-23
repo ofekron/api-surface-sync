@@ -13,6 +13,11 @@ class PingRequest(BaseModel):
     value: str
 
 
+class OptionalPingRequest(BaseModel):
+    value: str
+    excited: bool = False
+
+
 class PingResponse(BaseModel):
     value: str
 
@@ -41,20 +46,48 @@ class FakeTyperApp:
         return decorator
 
 
-def test_typer_commands_hide_internal_operation_binding() -> None:
+def test_typer_commands_use_request_model_fields() -> None:
     registry = OperationRegistry()
 
-    @registry.operation("ping_now", request_model=PingRequest, response_model=PingResponse)
-    def ping_now(request: PingRequest) -> PingResponse:
-        return PingResponse(value=request.value)
+    @registry.operation("ping_now", request_model=OptionalPingRequest, response_model=PingResponse)
+    def ping_now(request: OptionalPingRequest) -> PingResponse:
+        suffix = "!" if request.excited else ""
+        return PingResponse(value=f"{request.value}{suffix}")
 
     app = FakeTyperApp()
     add_commands(app, registry)
 
     assert app.commands[0][0] == "ping-now"
     signature = inspect.signature(app.commands[0][1])
-    assert list(signature.parameters) == ["payload_json"]
-    assert signature.parameters["payload_json"].annotation is str
+    assert list(signature.parameters) == ["value", "excited"]
+    assert signature.parameters["value"].annotation is str
+    assert signature.parameters["value"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert signature.parameters["excited"].annotation is bool
+    assert signature.parameters["excited"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_typer_command_runs_with_generated_arguments_and_options() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    registry = OperationRegistry()
+
+    @registry.operation("ping_now", request_model=OptionalPingRequest, response_model=PingResponse)
+    def ping_now(request: OptionalPingRequest) -> PingResponse:
+        suffix = "!" if request.excited else ""
+        return PingResponse(value=f"{request.value}{suffix}")
+
+    @registry.operation("echo", request_model=PingRequest, response_model=PingResponse)
+    def echo(request: PingRequest) -> PingResponse:
+        return PingResponse(value=request.value)
+
+    app = typer.Typer()
+    add_commands(app, registry)
+
+    result = CliRunner().invoke(app, ["ping-now", "hello", "--excited"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == '{"value":"hello!"}'
 
 
 def test_mcp_tools_are_registered_from_registry() -> None:
