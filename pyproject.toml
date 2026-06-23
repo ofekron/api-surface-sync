@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "api-surface-sync"
+version = "0.1.0"
+description = "Define typed Python operations once and expose them as SDK, CLI, REST, and MCP surfaces."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Ofek Ron" }]
+dependencies = ["pydantic>=2.7"]
+
+[project.optional-dependencies]
+cli = ["typer>=0.12"]
+rest = ["fastapi>=0.111"]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=8.0", "typer>=0.12", "fastapi>=0.111"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api_surface_sync"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
