@@ -2,53 +2,82 @@ from __future__ import annotations
 
 import asyncio
 from inspect import Parameter, Signature
+import json
+from pathlib import Path
+import sys
 from typing import Any
 
-from pydantic_core import PydanticUndefined
-
-from api_surface_sync.registry import OperationRegistry
+from api_surface_sync.sdk import OperationClient
 
 
-def add_commands(app: Any, registry: OperationRegistry) -> None:
-    for item in registry.all():
+def add_commands(app: Any, client: OperationClient) -> None:
+    import typer
+
+    for item in client.snapshot.all():
         command_name = item.name.replace("_", "-")
 
-        def command(operation=item, **payload: Any) -> None:
-            result = asyncio.run(operation.run({key: value for key, value in payload.items() if value is not None}))
-            print(result.value.model_dump_json())
+        def command(
+            operation_name=item.name,
+            operation_metadata=item.metadata,
+            **inputs: Any,
+        ) -> None:
+            payload = _read_payload(inputs, sensitive=bool(operation_metadata.get("sensitive")))
+            result = asyncio.run(client.run(operation_name, payload))
+            typer.echo(result.model_dump_json(by_alias=True))
 
         command.__name__ = item.name
         command.__doc__ = item.summary
         command.__signature__ = Signature(  # type: ignore[attr-defined]
-            parameters=_parameters_for_model(item.request_model),
+            parameters=[
+                Parameter(
+                    "input_json",
+                    Parameter.KEYWORD_ONLY,
+                    annotation=str | None,
+                    default=typer.Option(None, "--input-json"),
+                ),
+                Parameter(
+                    "input_file",
+                    Parameter.KEYWORD_ONLY,
+                    annotation=Path | None,
+                    default=typer.Option(None, "--input-file"),
+                ),
+                Parameter(
+                    "stdin",
+                    Parameter.KEYWORD_ONLY,
+                    annotation=bool,
+                    default=typer.Option(False, "--stdin"),
+                ),
+            ],
             return_annotation=None,
         )
         app.command(name=command_name)(command)
 
 
-def _parameters_for_model(model: type[Any]) -> list[Parameter]:
+def _read_payload(inputs: dict[str, Any], *, sensitive: bool) -> dict[str, Any]:
     import typer
 
-    parameters = []
-    for name, field in model.model_fields.items():
-        description = field.description or None
-        if field.is_required():
-            default = typer.Argument(..., help=description)
-            kind = Parameter.POSITIONAL_OR_KEYWORD
-        else:
-            default_value = None
-            if field.default is not PydanticUndefined:
-                default_value = field.default
-            elif field.default_factory is not None:
-                default_value = field.default_factory()
-            default = typer.Option(default_value, help=description)
-            kind = Parameter.KEYWORD_ONLY
-        parameters.append(
-            Parameter(
-                name,
-                kind,
-                annotation=field.annotation,
-                default=default,
-            )
+    input_json = inputs["input_json"]
+    input_file = inputs["input_file"]
+    use_stdin = inputs["stdin"]
+    selected = sum(value is not None for value in (input_json, input_file)) + int(
+        use_stdin
+    )
+    if selected != 1:
+        raise typer.BadParameter(
+            "choose exactly one of --input-json, --input-file, or --stdin"
         )
-    return parameters
+    if sensitive and not use_stdin:
+        raise typer.BadParameter("sensitive operations require --stdin")
+    if input_json is not None:
+        raw = input_json
+    elif input_file is not None:
+        raw = input_file.read_text(encoding="utf-8")
+    else:
+        raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter("input is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("input JSON must be an object")
+    return payload

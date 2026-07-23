@@ -1,18 +1,31 @@
 from api_surface_sync.registry import (
     Operation,
     OperationRegistry,
-    OperationResult,
+    RegistrySnapshot,
     operation,
 )
-from api_surface_sync.sdk import HttpOperationClient, OperationClient
+from api_surface_sync.sdk import (
+    HttpOperationClient,
+    HttpOperationExecutor,
+    LocalOperationExecutor,
+    OperationClient,
+    OperationExecutor,
+    OperationTransportError,
+    local_client,
+)
 from api_surface_sync.openapi import export_openapi
 
 __all__ = [
     "HttpOperationClient",
+    "HttpOperationExecutor",
+    "LocalOperationExecutor",
     "Operation",
     "OperationClient",
+    "OperationExecutor",
     "OperationRegistry",
-    "OperationResult",
+    "OperationTransportError",
+    "RegistrySnapshot",
     "export_openapi",
+    "local_client",
     "operation",
 ]

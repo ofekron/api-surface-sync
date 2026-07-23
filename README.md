@@ -2,11 +2,11 @@
 
 Define typed Python operations once and expose them as SDK, CLI, REST, and MCP surfaces.
 
-The core idea is simple: keep behavior in one canonical operation registry, then let every public surface bind to that registry instead of hand-maintaining parallel implementations.
+The registry is an immutable contract snapshot. One async client validates requests and responses, then dispatches through an injected executor. SDK, CLI, REST, and MCP adapters all bind to that same client.
 
 ```python
 from pydantic import BaseModel
-from api_surface_sync import OperationRegistry
+from api_surface_sync import OperationRegistry, local_client
 
 registry = OperationRegistry()
 
@@ -19,16 +19,22 @@ class EchoResponse(BaseModel):
 @registry.operation("echo", request_model=EchoRequest, response_model=EchoResponse)
 def echo(request: EchoRequest) -> EchoResponse:
     return EchoResponse(text=request.text)
+
+client = local_client(registry)
 ```
 
 From the same registry:
 
 ```python
-from api_surface_sync import OperationClient
 from api_surface_sync import export_openapi
 from api_surface_sync.surfaces.fastapi import add_routes
 from api_surface_sync.surfaces.mcp import add_tools
 from api_surface_sync.surfaces.typer import add_commands
+
+add_routes(fastapi_app, client)
+add_tools(mcp_server, client)
+add_commands(typer_app, client)
+openapi = export_openapi(registry.snapshot(), title="My API", version="1.0.0")
 ```
 
 ## What This Is For
@@ -43,7 +49,7 @@ from api_surface_sync.surfaces.typer import add_commands
 - Pydantic request and response contracts
 - Surface adapters
 - Schema export
-- Context/auth hooks as the project evolves
+- Injected executors for project-owned authority, transport, and lifecycle policy
 
 Project-specific concepts belong in the consuming project, not in this library.
 
@@ -68,7 +74,7 @@ pytest
 
 ## SDK Languages
 
-`export_openapi(registry, title="My API")` emits an OpenAPI 3.1 contract. Use that contract with OpenAPI Generator, Speakeasy, Stainless, Fern, or custom templates to generate TypeScript, Go, Rust, Java, Swift, or other SDKs from the same operation source.
+`export_openapi(registry, title="My API", version="1.0.0")` emits an OpenAPI 3.1 contract. Use that contract with OpenAPI Generator, Speakeasy, Stainless, Fern, or custom templates to generate TypeScript, Go, Rust, Java, Swift, or other SDKs from the same operation source.
 
 ## Status
 

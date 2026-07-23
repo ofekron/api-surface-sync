@@ -5,7 +5,7 @@ description: Fast project map for API Surface Sync, a Python library that maps t
 
 # API Surface Sync Project Structure
 
-API Surface Sync is a generic Python library for defining typed operations once and exposing them through multiple API surfaces. The operation registry is the source of truth; adapters for SDK, CLI, REST, and MCP stay thin and do not own business logic.
+API Surface Sync is a generic Python library for defining typed operations once and exposing them through multiple API surfaces. A sealed registry snapshot owns the contracts, one validating client delegates to an injected executor, and SDK, structured CLI, REST, and MCP adapters bind to that client without owning business logic.
 
 ## Routing
 
@@ -19,4 +19,3 @@ API Surface Sync is a generic Python library for defining typed operations once 
 ## Keeping This Skill Current
 
 Agents must update this skill when material project facts change: public surfaces, package layout, operation contract rules, test strategy, release workflow, or architecture invariants.
-
