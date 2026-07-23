@@ -2,12 +2,13 @@ import asyncio
 import time
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from api_surface_sync import (
     LocalOperationExecutor,
     Operation,
     OperationClient,
+    OperationContractError,
     OperationRegistry,
     local_client,
 )
@@ -70,10 +71,10 @@ def test_client_revalidates_constructed_request_and_mutated_response() -> None:
             return response
 
     client = OperationClient(registry, Executor())
-    with pytest.raises(ValidationError):
+    with pytest.raises(OperationContractError, match="request validation failed"):
         asyncio.run(client.run("echo", EchoRequest.model_construct()))
     assert not reached_executor
-    with pytest.raises(ValidationError):
+    with pytest.raises(OperationContractError, match="response validation failed"):
         asyncio.run(client.run("echo", {"text": "valid"}))
 
 

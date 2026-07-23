@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from api_surface_sync.registry import OperationRegistry, RegistrySnapshot
 
@@ -21,6 +21,13 @@ class OperationTransportError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+
+
+class OperationContractError(ValueError):
+    def __init__(self, phase: str, error: ValidationError) -> None:
+        super().__init__(f"{phase} validation failed: {error}")
+        self.phase = phase
+        self.error = error
 
 
 class OperationClient:
@@ -45,9 +52,15 @@ class OperationClient:
 
     async def run(self, name: str, payload: BaseModel | dict[str, Any]) -> BaseModel:
         operation = self.snapshot.get(name)
-        request = _validate_model(operation.request_model, payload)
+        try:
+            request = _validate_model(operation.request_model, payload)
+        except ValidationError as exc:
+            raise OperationContractError("request", exc) from exc
         raw_response = await self._executor.run(name, request)
-        return _validate_model(operation.response_model, raw_response)
+        try:
+            return _validate_model(operation.response_model, raw_response)
+        except ValidationError as exc:
+            raise OperationContractError("response", exc) from exc
 
     def schema(self) -> dict[str, Any]:
         return self.snapshot.schema()

@@ -4,10 +4,11 @@ import json
 from threading import Thread
 
 import pytest
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from api_surface_sync import (
     HttpOperationClient,
+    OperationContractError,
     OperationClient,
     OperationRegistry,
     OperationTransportError,
@@ -145,7 +146,7 @@ def test_http_client_rejects_error_content_and_invalid_response() -> None:
         async def run(self, name, request):
             return {"wrong": "shape"}
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(OperationContractError, match="response validation failed"):
         asyncio.run(OperationClient(registry, Executor()).run("echo", {"wire_value": "x"}))
 
     error = OperationTransportError("failed", status=503)

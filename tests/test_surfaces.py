@@ -152,7 +152,10 @@ def test_typer_command_accepts_exactly_one_structured_input(tmp_path: Path) -> N
         ["echo-now", "--input-json", '{"text":"json"}'],
     )
     assert json_result.exit_code == 0
-    assert json.loads(json_result.stdout) == {"value": "json!"}
+    assert json.loads(json_result.stdout) == {
+        "success": True,
+        "result": {"value": "json!"},
+    }
     input_path = tmp_path / "request.json"
     input_path.write_text('{"text":"file","suffix":"?"}', encoding="utf-8")
     file_result = runner.invoke(
@@ -160,16 +163,304 @@ def test_typer_command_accepts_exactly_one_structured_input(tmp_path: Path) -> N
         ["echo-now", "--input-file", str(input_path)],
     )
     assert file_result.exit_code == 0
-    assert json.loads(file_result.stdout) == {"value": "file?"}
+    assert json.loads(file_result.stdout) == {
+        "success": True,
+        "result": {"value": "file?"},
+    }
     stdin_result = runner.invoke(
         app,
         ["echo-now", "--stdin"],
         input='{"text":"stdin","suffix":null}',
     )
-    assert stdin_result.exit_code != 0
+    assert stdin_result.exit_code == 3
+    assert json.loads(stdin_result.stdout)["success"] is False
     missing_result = runner.invoke(app, ["echo-now"])
-    assert missing_result.exit_code != 0
+    assert missing_result.exit_code == 2
+    assert json.loads(missing_result.stdout) == {
+        "success": False,
+        "error": "choose exactly one of --input-json, --input-file, or --stdin",
+    }
     assert executor.calls == [
         ("echo_now", {"text": "json"}),
         ("echo_now", {"text": "file", "suffix": "?"}),
     ]
+
+
+def test_typer_command_enforces_sensitive_stdin_and_stable_failure_codes() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    registry = OperationRegistry()
+
+    @registry.operation(
+        "secret",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+        metadata={"sensitive": True},
+    )
+    def poison_handler(request: EchoRequest) -> EchoResponse:
+        raise AssertionError("surface bypassed the injected executor")
+
+    class FailingExecutor:
+        async def run(self, name: str, request: BaseModel):
+            raise RuntimeError("handler failed")
+
+    app = typer.Typer()
+    app.callback()(lambda: None)
+    add_commands(app, OperationClient(registry, FailingExecutor()))
+    runner = CliRunner()
+
+    rejected = runner.invoke(
+        app,
+        ["secret", "--input-json", '{"text":"visible"}'],
+    )
+    assert rejected.exit_code == 2
+    assert json.loads(rejected.stdout) == {
+        "success": False,
+        "error": "sensitive operations require --stdin",
+    }
+
+    failed = runner.invoke(
+        app,
+        ["secret", "--stdin"],
+        input='{"text":"hidden"}',
+    )
+    assert failed.exit_code == 4
+    assert json.loads(failed.stdout) == {
+        "success": False,
+        "error": "operation failed",
+    }
+
+
+def test_typer_command_redacts_sensitive_validation_and_executor_errors() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    secret = "SUPERSECRET"
+    registry = OperationRegistry()
+
+    @registry.operation(
+        "secret",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+        metadata={"sensitive": True},
+    )
+    def poison_handler(request: EchoRequest) -> EchoResponse:
+        raise AssertionError("surface bypassed the injected executor")
+
+    class SecretExecutor:
+        async def run(self, name: str, request: BaseModel):
+            if request.text == "executor":
+                raise RuntimeError(secret)
+            return {"value": [secret]}
+
+    app = typer.Typer()
+    app.callback()(lambda: None)
+    add_commands(app, OperationClient(registry, SecretExecutor()))
+    runner = CliRunner()
+
+    invalid_request = runner.invoke(
+        app,
+        ["secret", "--stdin"],
+        input=json.dumps({"text": [secret]}),
+    )
+    assert invalid_request.exit_code == 3
+    assert json.loads(invalid_request.stdout)["error"] == "request validation failed"
+
+    invalid_response = runner.invoke(
+        app,
+        ["secret", "--stdin"],
+        input='{"text":"response"}',
+    )
+    assert invalid_response.exit_code == 3
+    assert json.loads(invalid_response.stdout)["error"] == "response validation failed"
+
+    executor_failure = runner.invoke(
+        app,
+        ["secret", "--stdin"],
+        input='{"text":"executor"}',
+    )
+    assert executor_failure.exit_code == 4
+    assert json.loads(executor_failure.stdout)["error"] == "operation failed"
+    assert secret not in (
+        invalid_request.stdout + invalid_response.stdout + executor_failure.stdout
+    )
+
+
+def test_typer_command_wraps_parser_and_handler_validation_errors() -> None:
+    import typer
+    from pydantic import ValidationError
+    from typer.testing import CliRunner
+
+    registry = OperationRegistry()
+
+    @registry.operation(
+        "validate",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+    )
+    def poison_handler(request: EchoRequest) -> EchoResponse:
+        raise AssertionError("surface bypassed the injected executor")
+
+    class HandlerValidationExecutor:
+        async def run(self, name: str, request: BaseModel):
+            try:
+                EchoRequest.model_validate({"text": []})
+            except ValidationError as exc:
+                raise exc
+
+    app = typer.Typer()
+    app.callback()(lambda: None)
+    add_commands(app, OperationClient(registry, HandlerValidationExecutor()))
+    runner = CliRunner()
+
+    missing_value = runner.invoke(app, ["validate", "--input-file"])
+    assert missing_value.exit_code == 2
+    assert json.loads(missing_value.stdout)["success"] is False
+
+    handler_validation = runner.invoke(
+        app,
+        ["validate", "--input-json", '{"text":"valid"}'],
+    )
+    assert handler_validation.exit_code == 4
+    assert json.loads(handler_validation.stdout)["success"] is False
+
+
+def test_typer_command_wraps_callback_free_app_and_composes_custom_group() -> None:
+    import typer
+    from typer.core import TyperGroup
+    from typer.testing import CliRunner
+
+    class CustomGroup(TyperGroup):
+        pass
+
+    client, _executor = build_client()
+    app = typer.Typer(cls=CustomGroup)
+    add_commands(app, client)
+    command = typer.main.get_command(app)
+    assert isinstance(command, CustomGroup)
+
+    missing_value = CliRunner().invoke(app, ["echo-now", "--input-file"])
+    assert missing_value.exit_code == 2
+    assert json.loads(missing_value.stdout)["success"] is False
+
+
+def test_typer_command_redacts_sensitive_parser_errors(monkeypatch) -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    secret = "SUPERSECRET"
+    registry = OperationRegistry()
+
+    @registry.operation(
+        "secret",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+        metadata={"sensitive": True},
+    )
+    def poison_handler(request: EchoRequest) -> EchoResponse:
+        raise AssertionError("surface bypassed the injected executor")
+
+    app = typer.Typer()
+    add_commands(app, OperationClient(registry, RecordingExecutor()))
+    result = CliRunner().invoke(app, ["secret", "--stdin", secret])
+    assert result.exit_code == 2
+    assert json.loads(result.stdout) == {
+        "success": False,
+        "error": "invalid command input",
+    }
+    assert secret not in result.stdout
+    direct_output = []
+    import api_surface_sync.surfaces.typer as typer_surface
+
+    monkeypatch.setattr(typer_surface, "_emit", direct_output.append)
+    raised = None
+    try:
+        app(args=["secret", "--stdin", secret])
+    except SystemExit as exc:
+        raised = exc
+        assert exc.code == 2
+    assert direct_output == [{"success": False, "error": "invalid command input"}]
+    assert secret not in json.dumps(direct_output)
+    assert raised is not None
+    assert raised.__cause__ is None
+    assert raised.__context__ is None
+
+    direct_output.clear()
+    command = typer.main.get_command(app)
+    assert command.main(
+        args=["secret", "--stdin", secret],
+        standalone_mode=False,
+    ) == 2
+    assert direct_output == [{"success": False, "error": "invalid command input"}]
+    assert secret not in json.dumps(direct_output)
+
+
+def test_typer_command_redaction_is_shared_across_multiple_registries() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    sensitive = OperationRegistry()
+
+    @sensitive.operation(
+        "secret",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+        metadata={"sensitive": True},
+    )
+    def poison_sensitive(request: EchoRequest) -> EchoResponse:
+        raise AssertionError
+
+    regular = OperationRegistry()
+
+    @regular.operation(
+        "regular",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+    )
+    def poison_regular(request: EchoRequest) -> EchoResponse:
+        raise AssertionError
+
+    app = typer.Typer()
+    add_commands(app, OperationClient(sensitive, RecordingExecutor()))
+    add_commands(app, OperationClient(regular, RecordingExecutor()))
+    secret = "SUPERSECRET"
+    result = CliRunner().invoke(app, ["regular", "--stdin", secret])
+    assert result.exit_code == 2
+    assert json.loads(result.stdout) == {
+        "success": False,
+        "error": "invalid command input",
+    }
+    assert secret not in result.stdout
+
+
+def test_typer_command_wraps_response_serialization_errors() -> None:
+    import typer
+    from typer.testing import CliRunner
+
+    class AnyResponse(BaseModel):
+        value: object
+
+    registry = OperationRegistry()
+
+    @registry.operation(
+        "serialize",
+        request_model=EchoRequest,
+        response_model=AnyResponse,
+    )
+    def poison_handler(request: EchoRequest) -> AnyResponse:
+        raise AssertionError("surface bypassed the injected executor")
+
+    class UnserializableExecutor:
+        async def run(self, name: str, request: BaseModel):
+            return {"value": object()}
+
+    app = typer.Typer()
+    app.callback()(lambda: None)
+    add_commands(app, OperationClient(registry, UnserializableExecutor()))
+    result = CliRunner().invoke(
+        app,
+        ["serialize", "--input-json", '{"text":"valid"}'],
+    )
+    assert result.exit_code == 3
+    assert json.loads(result.stdout)["success"] is False
